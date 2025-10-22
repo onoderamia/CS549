@@ -3,7 +3,10 @@ from pathlib import Path
 from io import BytesIO
 from PIL import Image
 
-API_KEY = "" 
+from dotenv import load_dotenv
+load_dotenv(".env")
+
+API_KEY = os.getenv("API_KEY")
 
 REGIONS = {
     "North America":   {"city": "Chicago", "lat": 41.8781, "lng": -87.6298},
@@ -19,10 +22,10 @@ REGIONS = {
 
 META_URL = "https://maps.googleapis.com/maps/api/streetview/metadata"
 IMAGE_URL = "https://maps.googleapis.com/maps/api/streetview"
-OUT = Path("/Users/miaonodera/Desktop/UIUC/FALL2025/ECE549/CV/test_out")
+OUT = Path("./out2")
 OUT.mkdir(exist_ok=True)
 
-def streetview_meta(lat, lng, radius=60):
+def streetview_meta(lat, lng, radius=1000):
     params = {"location": f"{lat},{lng}", "radius": radius, "source": "outdoor", "key": API_KEY}
     r = requests.get(META_URL, params=params)
     if r.status_code != 200:
@@ -44,29 +47,32 @@ def streetview_image(pano_id, heading=0, fov=80, pitch=0):
     return Image.open(BytesIO(r.content))
 
 def main():
-    if not API_KEY or API_KEY == "YOUR_API_KEY_HERE":
+    if not API_KEY:
         raise SystemExit("Set GCP_API_KEY environment variable or paste your key into API_KEY.")
 
-    sample_regions = random.sample(list(REGIONS.keys()), 3)
+    sample_regions = random.sample(list(REGIONS.keys()), 9)
     for region in sample_regions:
         info = REGIONS[region]
         lat, lng = info["lat"], info["lng"]
-        print(f"\n{region} ({info['city']})")
+        lat += .1*(random.random()-.5)
+        lng += .1*(random.random()-.5)
+        print(f"\n{region} ({info['city']}): {lat}, {lng}")
         meta = streetview_meta(lat, lng)
         if not meta or meta.get("status") != "OK":
-            print("  No Street View found nearby.")
+            print(f"  No Street View found nearby:{meta}")
             continue
 
         pano_id = meta["pano_id"]
         img = streetview_image(pano_id, heading=random.choice([0, 90, 180, 270]))
         if img:
-            out_path = OUT / f"{region.replace(' ','_')}_{info['city']}.jpg"
-            img.save(out_path)
+            out_path = OUT / f"{info['city']}"
+            out_path.mkdir(exist_ok=True)
+            img.save(out_path / f"{lat}-{lng}.jpg")
             print(f"  Saved {out_path}")
         else:
             print("  Failed to fetch image.")
 
-    print("\nDone. Check the 'test_out' folder for images.")
+    print(f"\nDone. Check the '{out_path}' folder for images.")
 
 if __name__ == "__main__":
     main()
