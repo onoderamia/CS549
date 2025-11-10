@@ -84,7 +84,7 @@ def main():
     if not API_KEY or API_KEY.strip() == "YOUR_GOOGLE_API_KEY_HERE":
         raise SystemExit("Set API_KEY to your Google Street View Static API key.")
     
-    HEADINGS = [0, 90, 180, 270]
+    HEADINGS = [i for i in range(0, 360)]
     TRIES_PER_CITY = 5
     META_RADIUS = 120
     FALLBACK_RADIUS = 180
@@ -103,7 +103,7 @@ def main():
             pid = meta["pano_id"]
             best = (-1.0, None, None) 
 
-            for hdg in random.sample(HEADINGS, k=len(HEADINGS)):
+            for hdg in random.sample(HEADINGS, k=4):
                 img = get_image(pid, hdg)
                 if img is None: 
                     continue
@@ -112,7 +112,7 @@ def main():
                     best = (sc, img, hdg)
 
             if best[1] is not None and is_meaningful(best[1]):
-                fname = f"{lat:.5f},{lng:.5f}.jpg"
+                fname = f"{lat:.5f},{lng:.5f},{hdg}.jpg"
                 best[1].save(city_dir / fname, quality=92)
                 print(f"[{city}] saved {fname}")
                 saved = True
@@ -121,4 +121,5 @@ def main():
     print(f"done. check: {OUT.resolve()}")
 
 if __name__ == "__main__":
-    main()
+    for i in range(10):
+        main()
