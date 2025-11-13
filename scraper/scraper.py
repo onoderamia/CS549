@@ -1,4 +1,4 @@
-import os, random, requests
+import os, sys, random, requests
 from pathlib import Path
 from io import BytesIO
 from PIL import Image
@@ -24,6 +24,8 @@ BBOXES = {
 META_URL  = "https://maps.googleapis.com/maps/api/streetview/metadata"
 IMAGE_URL = "https://maps.googleapis.com/maps/api/streetview"
 OUT = Path("out"); OUT.mkdir(exist_ok=True)
+
+num_requests = 0
 
 def rand_point(bbox):
     lat0, lat1, lng0, lng1 = bbox
@@ -89,6 +91,8 @@ def main():
     META_RADIUS = 120
     FALLBACK_RADIUS = 180
 
+    global num_requests
+
     for city, bbox in BBOXES.items():
         city_dir = OUT / city
         city_dir.mkdir(exist_ok=True)
@@ -97,7 +101,7 @@ def main():
         for _ in range(TRIES_PER_CITY):
             lat, lng = rand_point(bbox)
             meta = get_meta(lat, lng, META_RADIUS) or get_meta(lat, lng, FALLBACK_RADIUS)
-            if not meta: 
+            if not meta:
                 continue
 
             pid = meta["pano_id"]
@@ -105,6 +109,7 @@ def main():
 
             for hdg in random.sample(HEADINGS, k=4):
                 img = get_image(pid, hdg)
+                num_requests += 1
                 if img is None: 
                     continue
                 sc = score_streetness(img)
@@ -121,5 +126,8 @@ def main():
     print(f"done. check: {OUT.resolve()}")
 
 if __name__ == "__main__":
-    for i in range(10):
+    max_requests = int(sys.argv[1]) if len(sys.argv) > 1 else 6000
+    while num_requests < max_requests:
         main()
+        print(f"Total requests so far: {num_requests}")
+        print(f"requests remaining: {max_requests - num_requests}")
