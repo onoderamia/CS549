@@ -6,8 +6,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.preprocessing import LabelEncoder
 
-import xgboost as xgb
-
 # Optional OCR
 try:
     import pytesseract
@@ -21,21 +19,46 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
 from torchvision import models
 
-# Limit thread usage (helps avoid segfault/weirdness on macOS)
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-torch.set_num_threads(1)
-
 # ==============================
 # 1. CONFIG
 # ==============================
 DATA_ROOT = "/Users/miaonodera/Desktop/UIUC/FALL2025/ECE549/CV/out"
 RANDOM_SEED = 42
+
 np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 
 USE_OCR = True    # set False if OCR is too slow
-BATCH_SIZE_CNN = 16
+BATCH_SIZE = 16
+NUM_EPOCHS = 15
+LEARNING_RATE = 1e-4
+WEIGHT_DECAY = 1e-4
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", DEVICE)
+
+# ImageNet normalization for ResNet18
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+
+# Data augmentation for training CNN features
+train_transform = T.Compose([
+    T.ToPILImage(),
+    T.RandomResizedCrop(224, scale=(0.8, 1.0)),
+    T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3),
+    T.RandomApply([T.GaussianBlur(kernel_size=3)], p=0.2),
+    T.ToTensor(),
+    T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+])
+
+# Deterministic transform for val/test CNN features
+eval_transform = T.Compose([
+    T.ToPILImage(),
+    T.Resize((256, 256)),
+    T.CenterCrop(224),
+    T.ToTensor(),
+    T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+])
 
 
 # ==============================
@@ -56,9 +79,10 @@ def compute_edge_composition(gray):
       vertical edge ratio from Sobel_x and Sobel_y
     """
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    sobely = cv2.CV_64F
+    sobely = cv2.Sobel(gray, sobely, 0, 1, ksize=3)
     magx = np.mean(np.abs(sobelx))
-    magy = np.mean(np.abs(sobely))
+    magy = np.mean(np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)))
     vert_edge_ratio = magx / (magx + magy + 1e-8)
     return vert_edge_ratio
 
@@ -213,15 +237,16 @@ def extract_handcrafted_features(image_path):
     return features
 
 
-def build_handcrafted_matrix(paths):
-    X = []
+def build_handcrafted_dict(paths):
+    """
+    Build a dict: image_path -> handcrafted feature vector.
+    Assumes all images are valid; will raise if any fails.
+    """
+    feat_dict = {}
     for p in paths:
-        try:
-            feats = extract_handcrafted_features(p)
-            X.append(feats)
-        except Exception as e:
-            print(f"  [HC] Skipping {p}: {e}")
-    return np.vstack(X)
+        feats = extract_handcrafted_features(p)
+        feat_dict[p] = feats
+    return feat_dict
 
 
 # ==============================
@@ -268,12 +293,14 @@ def split_paths(paths, labels):
 
 
 # ==============================
-# 6. CNN FEATURE EXTRACTOR (ResNet18)
+# 6. HYBRID DATASET (IMAGE + HANDCRAFTED)
 # ==============================
 
-class ImagePathDataset(Dataset):
-    def __init__(self, paths, transform=None):
+class HybridDataset(Dataset):
+    def __init__(self, paths, labels_int, hc_features_dict, transform):
         self.paths = list(paths)
+        self.labels_int = np.array(labels_int, dtype=np.int64)
+        self.hc_features_dict = hc_features_dict
         self.transform = transform
 
     def __len__(self):
@@ -281,100 +308,117 @@ class ImagePathDataset(Dataset):
 
     def __getitem__(self, idx):
         path = self.paths[idx]
-        img = cv2.imread(path)
-        if img is None:
-            img = np.zeros((256, 256, 3), dtype=np.uint8)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, idx  # idx so we can put features in correct position
+        label = self.labels_int[idx]
+
+        img_bgr = cv2.imread(path)
+        if img_bgr is None:
+            # Fallback: black image
+            img_bgr = np.zeros((256, 256, 3), dtype=np.uint8)
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+        img_tensor = self.transform(img_rgb)
+
+        hc_feats = self.hc_features_dict[path]  # numpy array (15,)
+        hc_feats = torch.from_numpy(hc_feats.astype(np.float32))
+
+        label_tensor = torch.tensor(label, dtype=torch.long)
+        return img_tensor, hc_feats, label_tensor
 
 
-def build_resnet18_feature_extractor(device):
-    # Pretrained ResNet-18
-    weights = models.ResNet18_Weights.DEFAULT
-    model = models.resnet18(weights=weights)
-    # Replace final fc with identity to get 512-dim embedding
-    model.fc = nn.Identity()
-    model = model.to(device)
+# ==============================
+# 7. HYBRID MODEL (ResNet18 + Handcrafted)
+# ==============================
+
+class HybridNet(nn.Module):
+    def __init__(self, num_hc_features, num_classes):
+        super().__init__()
+        # Pretrained ResNet-18 backbone
+        weights = models.ResNet18_Weights.DEFAULT
+        self.cnn = models.resnet18(weights=weights)
+        in_feats = self.cnn.fc.in_features
+        self.cnn.fc = nn.Identity()  # output is (B, in_feats)
+
+        # Classifier that takes [cnn_feats || hc_feats]
+        self.fc = nn.Sequential(
+            nn.Linear(in_feats + num_hc_features, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, num_classes)
+        )
+
+    def forward(self, x_img, x_hc):
+        cnn_feats = self.cnn(x_img)         # (B, 512)
+        x = torch.cat([cnn_feats, x_hc], dim=1)  # (B, 512 + num_hc_features)
+        out = self.fc(x)
+        return out
+
+
+# ==============================
+# 8. TRAINING / EVAL LOOPS
+# ==============================
+
+def train_one_epoch(model, loader, optimizer, criterion, device):
+    model.train()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+
+    for imgs, hc_feats, labels in loader:
+        imgs = imgs.to(device)
+        hc_feats = hc_feats.to(device)
+        labels = labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(imgs, hc_feats)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item() * imgs.size(0)
+        _, preds = outputs.max(1)
+        correct += preds.eq(labels).sum().item()
+        total += labels.size(0)
+
+    epoch_loss = running_loss / total
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc
+
+
+def eval_one_epoch(model, loader, criterion, device):
     model.eval()
-    return model
+    running_loss = 0.0
+    correct = 0
+    total = 0
 
-
-def extract_cnn_features(paths, model, transform, device):
-    """
-    paths: numpy array of image paths
-    Returns: [N, 512] CNN embedding matrix
-    """
-    dataset = ImagePathDataset(paths, transform=transform)
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE_CNN, shuffle=False, num_workers=0)
-
-    N = len(paths)
-    feats = np.zeros((N, 512), dtype=np.float32)
+    all_labels = []
+    all_preds = []
 
     with torch.no_grad():
-        for imgs, idxs in loader:
+        for imgs, hc_feats, labels in loader:
             imgs = imgs.to(device)
-            emb = model(imgs)  # [B, 512]
-            emb = emb.cpu().numpy().astype(np.float32)
-            for i, idx in enumerate(idxs):
-                feats[idx] = emb[i]
+            hc_feats = hc_feats.to(device)
+            labels = labels.to(device)
 
-    return feats
+            outputs = model(imgs, hc_feats)
+            loss = criterion(outputs, labels)
 
+            running_loss += loss.item() * imgs.size(0)
+            _, preds = outputs.max(1)
+            correct += preds.eq(labels).sum().item()
+            total += labels.size(0)
 
-# ==============================
-# 7. XGBOOST ON HYBRID FEATURES
-# ==============================
+            all_labels.append(labels.cpu().numpy())
+            all_preds.append(preds.cpu().numpy())
 
-def train_xgb_hybrid(X_train, y_train, X_val, y_val, X_test, y_test, label_encoder, num_classes):
-    print("\n=== XGBoost on hybrid features ===")
-
-    xgb_clf = xgb.XGBClassifier(
-        n_estimators=400,
-        max_depth=6,
-        learning_rate=0.05,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        objective="multi:softmax",
-        num_class=num_classes,
-        tree_method="hist",
-        eval_metric="mlogloss",
-        random_state=RANDOM_SEED,
-        n_jobs=-1
-    )
-
-    # Train with validation
-    xgb_clf.fit(
-        X_train,
-        y_train,
-        eval_set=[(X_val, y_val)],
-        verbose=False,
-    )
-
-    # Retrain on train+val
-    X_trainval = np.vstack([X_train, X_val])
-    y_trainval = np.concatenate([y_train, y_val])
-    xgb_clf.fit(X_trainval, y_trainval, verbose=False)
-
-    # Test
-    y_test_pred = xgb_clf.predict(X_test)
-    test_acc = accuracy_score(y_test, y_test_pred)
-    y_test_pred_str = label_encoder.inverse_transform(y_test_pred)
-    y_test_str = label_encoder.inverse_transform(y_test)
-
-    print("\n=== XGBOOST HYBRID TEST RESULTS ===")
-    print(f"XGBoost hybrid test accuracy: {test_acc:.4f}\n")
-    print("Classification report (XGBoost hybrid):")
-    print(classification_report(y_test_str, y_test_pred_str))
-    print("Confusion matrix (XGBoost hybrid):")
-    print(confusion_matrix(y_test_str, y_test_pred_str))
-
-    return xgb_clf
+    epoch_loss = running_loss / total
+    epoch_acc = correct / total
+    all_labels = np.concatenate(all_labels)
+    all_preds = np.concatenate(all_preds)
+    return epoch_loss, epoch_acc, all_labels, all_preds
 
 
 # ==============================
-# 8. MAIN
+# 9. MAIN
 # ==============================
 
 def main():
@@ -382,7 +426,13 @@ def main():
     paths, labels_str = list_image_paths_and_labels(DATA_ROOT)
     p_train, p_val, p_test, y_train_str, y_val_str, y_test_str = split_paths(paths, labels_str)
 
-    # Encode labels to ints for XGB
+    # 2) Build handcrafted feature dict for ALL images (so it's shared)
+    print("\nComputing handcrafted+language features for all images...")
+    hc_dict = build_handcrafted_dict(paths)
+    num_hc_features = len(next(iter(hc_dict.values())))
+    print("Handcrafted feature dimension:", num_hc_features)
+
+    # 3) Encode labels to ints
     le = LabelEncoder()
     y_train = le.fit_transform(y_train_str)
     y_val = le.transform(y_val_str)
@@ -390,52 +440,66 @@ def main():
     num_classes = len(le.classes_)
     print("Classes:", list(le.classes_))
 
-    # 2) Handcrafted+language features
-    print("\nExtracting handcrafted+language features...")
-    X_train_hc = build_handcrafted_matrix(p_train)
-    X_val_hc = build_handcrafted_matrix(p_val)
-    X_test_hc = build_handcrafted_matrix(p_test)
+    # 4) Build datasets + loaders
+    train_dataset = HybridDataset(p_train, y_train, hc_dict, train_transform)
+    val_dataset   = HybridDataset(p_val,   y_val,   hc_dict, eval_transform)
+    test_dataset  = HybridDataset(p_test,  y_test,  hc_dict, eval_transform)
 
-    assert X_train_hc.shape[0] == len(p_train)
-    assert X_val_hc.shape[0] == len(p_val)
-    assert X_test_hc.shape[0] == len(p_test)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
+    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # 3) CNN features
-    print("\nExtracting CNN features (ResNet18)...")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    resnet = build_resnet18_feature_extractor(device)
+    # 5) Model, loss, optimizer
+    model = HybridNet(num_hc_features=num_hc_features, num_classes=num_classes).to(DEVICE)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-    cnn_transform = T.Compose([
-        T.ToPILImage(),
-        T.Resize((256, 256)),
-        T.CenterCrop(224),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225]),
-    ])
+    best_val_acc = 0.0
+    best_state = None
 
-    X_train_cnn = extract_cnn_features(p_train, resnet, cnn_transform, device)
-    X_val_cnn   = extract_cnn_features(p_val,   resnet, cnn_transform, device)
-    X_test_cnn  = extract_cnn_features(p_test,  resnet, cnn_transform, device)
+    # 6) Training loop
+    for epoch in range(1, NUM_EPOCHS + 1):
+        train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, DEVICE)
+        val_loss, val_acc, _, _ = eval_one_epoch(model, val_loader, criterion, DEVICE)
 
-    # 4) Hybrid features = [handcrafted+language, cnn]
-    X_train_hybrid = np.concatenate([X_train_hc, X_train_cnn], axis=1)
-    X_val_hybrid   = np.concatenate([X_val_hc,   X_val_cnn],   axis=1)
-    X_test_hybrid  = np.concatenate([X_test_hc,  X_test_cnn],  axis=1)
+        print(f"[Epoch {epoch:02d}] "
+              f"Train loss: {train_loss:.4f}, acc: {train_acc:.4f} | "
+              f"Val loss: {val_loss:.4f}, acc: {val_acc:.4f}")
 
-    print("\nHybrid feature dims:")
-    print("  Train:", X_train_hybrid.shape)
-    print("  Val  :", X_val_hybrid.shape)
-    print("  Test :", X_test_hybrid.shape)
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_state = model.state_dict()
 
-    # 5) Train + evaluate XGBoost on hybrid
-    _ = train_xgb_hybrid(
-        X_train_hybrid, y_train,
-        X_val_hybrid, y_val,
-        X_test_hybrid, y_test,
-        le,
-        num_classes
+    # 7) Load best model
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        print(f"\nLoaded best model with val acc = {best_val_acc:.4f}")
+
+    # 8) Evaluate on test set
+    test_loss, test_acc, y_true, y_pred = eval_one_epoch(model, test_loader, criterion, DEVICE)
+    print("\n=== TEST RESULTS (Hybrid Deep + Handcrafted) ===")
+    print(f"Test loss: {test_loss:.4f}, Test acc: {test_acc:.4f}")
+
+    # Decode labels to city names
+    y_true_str = le.inverse_transform(y_true)
+    y_pred_str = le.inverse_transform(y_pred)
+
+    print("\nClassification report:")
+    print(classification_report(y_true_str, y_pred_str))
+    print("Confusion matrix:")
+    print(confusion_matrix(y_true_str, y_pred_str))
+
+    # 9) Save model + label classes
+    save_path = "hybrid_cnn_handcrafted.pth"
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "classes": le.classes_.tolist(),
+            "num_hc_features": num_hc_features,
+        },
+        save_path,
     )
+    print(f"\nSaved model to {save_path}")
 
 
 if __name__ == "__main__":
