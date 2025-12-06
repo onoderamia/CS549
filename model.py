@@ -3,15 +3,8 @@ import numpy as np
 import cv2
 
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import LabelEncoder
-
-# Optional OCR
-try:
-    import pytesseract
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
 
 import torch
 import torch.nn as nn
@@ -19,16 +12,16 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
 from torchvision import models
 
-# ==============================
-# 1. CONFIG
-# ==============================
+# -------------------------------------------------------------------
+# Config
+# -------------------------------------------------------------------
+
 DATA_ROOT = "/Users/miaonodera/Desktop/UIUC/FALL2025/ECE549/CV/out"
 RANDOM_SEED = 42
 
 np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 
-USE_OCR = True    # set False if OCR is too slow
 BATCH_SIZE = 16
 NUM_EPOCHS = 15
 LEARNING_RATE = 1e-4
@@ -37,11 +30,9 @@ WEIGHT_DECAY = 1e-4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", DEVICE)
 
-# ImageNet normalization for ResNet18
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
-# Data augmentation for training CNN features
 train_transform = T.Compose([
     T.ToPILImage(),
     T.RandomResizedCrop(224, scale=(0.8, 1.0)),
@@ -51,7 +42,6 @@ train_transform = T.Compose([
     T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
 
-# Deterministic transform for val/test CNN features
 eval_transform = T.Compose([
     T.ToPILImage(),
     T.Resize((256, 256)),
@@ -60,202 +50,88 @@ eval_transform = T.Compose([
     T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
 
+# -------------------------------------------------------------------
+# CV Features
+# -------------------------------------------------------------------
 
-# ==============================
-# 2. HANDCRAFTED FEATURE FUNCTIONS
-# ==============================
-
-def compute_texture_feature(gray):
-    """Texture: variance of Laplacian (clipped)."""
+def feature_texture(gray):
     lap = cv2.Laplacian(gray, cv2.CV_64F)
-    texture = lap.var()
-    texture = min(texture, 5000.0)
-    return texture
+    return min(lap.var(), 5000.0)
 
 
-def compute_edge_composition(gray):
-    """
-    Edge composition:
-      vertical edge ratio from Sobel_x and Sobel_y
-    """
+def feature_edges(gray):
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobely = cv2.CV_64F
-    sobely = cv2.Sobel(gray, sobely, 0, 1, ksize=3)
     magx = np.mean(np.abs(sobelx))
     magy = np.mean(np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)))
-    vert_edge_ratio = magx / (magx + magy + 1e-8)
-    return vert_edge_ratio
+    return magx / (magx + magy + 1e-8)
 
 
-def compute_color_and_brightness_features(img_bgr):
-    """
-    Color + brightness:
-      - mean hue, mean saturation
-      - mean and std of brightness (V channel)
-      - sky ratio (bright + low-saturation pixels)
-    """
+def feature_color(img_bgr):
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-
-    hue_mean = float(h.mean())
-    sat_mean = float(s.mean())
-    v_mean = float(v.mean())
-    v_std = float(v.std())
-
     sky_mask = (v > 180) & (s < 60)
-    sky_ratio = float(sky_mask.mean())
-
-    return hue_mean, sat_mean, v_mean, v_std, sky_ratio
+    return float(h.mean()), float(s.mean()), float(v.mean()), float(v.std()), float(sky_mask.mean())
 
 
-def compute_horizon_feature(gray):
-    """
-    Horizon/layout:
-      row with largest vertical gradient magnitude (normalized).
-    """
+def feature_horizon(gray):
     sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     row_grad = np.mean(np.abs(sobely), axis=1)
     horizon_row = int(np.argmax(row_grad))
-    horizon_height = horizon_row / gray.shape[0]
-    return horizon_height
+    return horizon_row / gray.shape[0]
 
 
-def compute_keypoint_density(gray):
-    """Keypoint density using ORB."""
+def feature_keypoints(gray):
     orb = cv2.ORB_create(nfeatures=500)
     keypoints = orb.detect(gray, None)
     h, w = gray.shape
-    density = len(keypoints) / (h * w)
-    return density
+    return len(keypoints) / (h * w)
 
 
-def compute_edge_density(gray):
-    """Edge density: fraction of pixels that are Canny edges."""
+def feature_edge_density(gray):
     edges = cv2.Canny(gray, 100, 200)
-    edge_density = (edges > 0).mean()
-    return float(edge_density)
+    return float((edges > 0).mean())
 
 
-# ==============================
-# 3. LANGUAGE / SCRIPT FEATURES
-# ==============================
-
-def detect_script_from_text(text):
-    """
-    Rough script detector based on unicode ranges.
-    Returns 5-dim: [latin, devanagari, cjk, arabic, has_text].
-    """
-    if not text or text.strip() == "":
-        return np.array([0, 0, 0, 0, 0], dtype=np.float32)
-
-    has_latin = False
-    has_deva = False
-    has_cjk = False
-    has_arabic = False
-
-    for ch in text:
-        code = ord(ch)
-        # Latin
-        if (0x0041 <= code <= 0x007A) or (0x00C0 <= code <= 0x024F):
-            has_latin = True
-        # Devanagari
-        if 0x0900 <= code <= 0x097F:
-            has_deva = True
-        # CJK (Han + Hiragana + Katakana)
-        if (0x4E00 <= code <= 0x9FFF) or (0x3040 <= code <= 0x30FF):
-            has_cjk = True
-        # Arabic
-        if 0x0600 <= code <= 0x06FF:
-            has_arabic = True
-
-    arr = np.array([
-        1.0 if has_latin else 0.0,
-        1.0 if has_deva else 0.0,
-        1.0 if has_cjk else 0.0,
-        1.0 if has_arabic else 0.0,
-        1.0,  # has_text flag
-    ], dtype=np.float32)
-    return arr
-
-
-def compute_language_features(img_bgr):
-    """
-    OCR-based language/script indicator.
-    If OCR not available or USE_OCR=False, returns all zeros.
-    """
-    if not OCR_AVAILABLE or not USE_OCR:
-        return np.zeros(5, dtype=np.float32)
-
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    try:
-        text = pytesseract.image_to_string(img_rgb, config="--psm 6")
-    except Exception:
-        return np.zeros(5, dtype=np.float32)
-
-    return detect_script_from_text(text)
-
-
-# ==============================
-# 4. HANDCRAFTED+LANG FEATURES PER IMAGE
-# ==============================
-
-def extract_handcrafted_features(image_path):
-    """
-    Compute handcrafted + language features for one image.
-    Returns a 15-dim numpy array.
-    """
-    img = cv2.imread(image_path)
+def extract_scene_features(path):
+    img = cv2.imread(path)
     if img is None:
-        raise ValueError(f"Could not read image at {image_path}")
+        raise ValueError(f"Could not read image at {path}")
 
-    img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_AREA)
+    img = cv2.resize(img, (256, 256))
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    texture = compute_texture_feature(gray)
-    vert_edge_ratio = compute_edge_composition(gray)
-    hue_mean, sat_mean, v_mean, v_std, sky_ratio = compute_color_and_brightness_features(img)
-    horizon_height = compute_horizon_feature(gray)
-    keypoint_density = compute_keypoint_density(gray)
-    edge_density = compute_edge_density(gray)
-    lang_feats = compute_language_features(img)  # 5 dims
+    texture    = feature_texture(gray)
+    edge_ratio = feature_edges(gray)
+    h_mean, s_mean, v_mean, v_std, sky_ratio = feature_color(img)
+    horizon    = feature_horizon(gray)
+    kp_density = feature_keypoints(gray)
+    ed_density = feature_edge_density(gray)
 
-    # 10 original + 5 language = 15 features
-    feats_10 = np.array([
+    scene10 = np.array([
         texture,
-        vert_edge_ratio,
-        hue_mean,
-        sat_mean,
+        edge_ratio,
+        h_mean,
+        s_mean,
         v_mean,
         v_std,
-        horizon_height,
-        keypoint_density,
-        edge_density,
-        sky_ratio,
+        horizon,
+        kp_density,
+        ed_density,
+        sky_ratio
     ], dtype=np.float32)
 
-    features = np.concatenate([feats_10, lang_feats], axis=0)
-    return features
+    return scene10
 
 
-def build_handcrafted_dict(paths):
-    """
-    Build a dict: image_path -> handcrafted feature vector.
-    Assumes all images are valid; will raise if any fails.
-    """
-    feat_dict = {}
-    for p in paths:
-        feats = extract_handcrafted_features(p)
-        feat_dict[p] = feats
-    return feat_dict
+def build_scene_dict(paths):
+    return {p: extract_scene_features(p) for p in paths}
 
-
-# ==============================
-# 5. LIST IMAGE PATHS + LABELS
-# ==============================
+# -------------------------------------------------------------------
+# Data utilities
+# -------------------------------------------------------------------
 
 def list_image_paths_and_labels(root):
-    paths = []
-    labels = []
+    paths, labels = [], []
     for city_name in sorted(os.listdir(root)):
         city_folder = os.path.join(root, city_name)
         if not os.path.isdir(city_folder):
@@ -274,33 +150,32 @@ def split_paths(paths, labels):
     p_train, p_temp, y_train, y_temp = train_test_split(
         paths, labels,
         test_size=0.4,
-        random_state=RANDOM_SEED,
-        stratify=labels
+        stratify=labels,
+        random_state=RANDOM_SEED
     )
+
     p_val, p_test, y_val, y_test = train_test_split(
         p_temp, y_temp,
         test_size=0.5,
-        random_state=RANDOM_SEED,
-        stratify=y_temp
+        stratify=y_temp,
+        random_state=RANDOM_SEED
     )
 
     print("Image split counts:")
     print("  Train:", len(p_train))
     print("  Val  :", len(p_val))
     print("  Test :", len(p_test))
-
     return p_train, p_val, p_test, y_train, y_val, y_test
 
+# -------------------------------------------------------------------
+# Dataset
+# -------------------------------------------------------------------
 
-# ==============================
-# 6. HYBRID DATASET (IMAGE + HANDCRAFTED)
-# ==============================
-
-class HybridDataset(Dataset):
-    def __init__(self, paths, labels_int, hc_features_dict, transform):
+class SceneDataset(Dataset):
+    def __init__(self, paths, labels_int, scene_dict, transform):
         self.paths = list(paths)
         self.labels_int = np.array(labels_int, dtype=np.int64)
-        self.hc_features_dict = hc_features_dict
+        self.scene_dict = scene_dict
         self.transform = transform
 
     def __len__(self):
@@ -312,127 +187,112 @@ class HybridDataset(Dataset):
 
         img_bgr = cv2.imread(path)
         if img_bgr is None:
-            # Fallback: black image
             img_bgr = np.zeros((256, 256, 3), dtype=np.uint8)
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         img_tensor = self.transform(img_rgb)
 
-        hc_feats = self.hc_features_dict[path]  # numpy array (15,)
-        hc_feats = torch.from_numpy(hc_feats.astype(np.float32))
-
+        scene_feats = torch.from_numpy(self.scene_dict[path].astype(np.float32))
         label_tensor = torch.tensor(label, dtype=torch.long)
-        return img_tensor, hc_feats, label_tensor
 
+        return img_tensor, scene_feats, label_tensor
 
-# ==============================
-# 7. HYBRID MODEL (ResNet18 + Handcrafted)
-# ==============================
+# -------------------------------------------------------------------
+# Model
+# -------------------------------------------------------------------
 
-class HybridNet(nn.Module):
-    def __init__(self, num_hc_features, num_classes):
+class GeoSceneNet(nn.Module):
+    def __init__(self, num_scene_features, num_classes):
         super().__init__()
-        # Pretrained ResNet-18 backbone
         weights = models.ResNet18_Weights.DEFAULT
         self.cnn = models.resnet18(weights=weights)
         in_feats = self.cnn.fc.in_features
-        self.cnn.fc = nn.Identity()  # output is (B, in_feats)
-
-        # Classifier that takes [cnn_feats || hc_feats]
+        self.cnn.fc = nn.Identity()
         self.fc = nn.Sequential(
-            nn.Linear(in_feats + num_hc_features, 256),
+            nn.Linear(in_feats + num_scene_features, 256),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
             nn.Linear(256, num_classes)
         )
 
-    def forward(self, x_img, x_hc):
-        cnn_feats = self.cnn(x_img)         # (B, 512)
-        x = torch.cat([cnn_feats, x_hc], dim=1)  # (B, 512 + num_hc_features)
-        out = self.fc(x)
-        return out
+    def forward(self, x_img, x_scene):
+        cnn_feats = self.cnn(x_img)
+        x = torch.cat([cnn_feats, x_scene], dim=1)
+        return self.fc(x)
 
-
-# ==============================
-# 8. TRAINING / EVAL LOOPS
-# ==============================
+# -------------------------------------------------------------------
+# Train / Eval loops
+# -------------------------------------------------------------------
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
-    running_loss = 0.0
+    total_loss = 0.0
     correct = 0
     total = 0
 
-    for imgs, hc_feats, labels in loader:
+    for imgs, scene_feats, labels in loader:
         imgs = imgs.to(device)
-        hc_feats = hc_feats.to(device)
+        scene_feats = scene_feats.to(device)
         labels = labels.to(device)
 
         optimizer.zero_grad()
-        outputs = model(imgs, hc_feats)
+        outputs = model(imgs, scene_feats)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
 
-        running_loss += loss.item() * imgs.size(0)
+        total_loss += loss.item() * imgs.size(0)
         _, preds = outputs.max(1)
         correct += preds.eq(labels).sum().item()
         total += labels.size(0)
 
-    epoch_loss = running_loss / total
-    epoch_acc = correct / total
-    return epoch_loss, epoch_acc
+    return total_loss / total, correct / total
 
 
 def eval_one_epoch(model, loader, criterion, device):
     model.eval()
-    running_loss = 0.0
+    total_loss = 0.0
     correct = 0
     total = 0
 
-    all_labels = []
-    all_preds = []
+    labels_all = []
+    preds_all = []
 
     with torch.no_grad():
-        for imgs, hc_feats, labels in loader:
+        for imgs, scene_feats, labels in loader:
             imgs = imgs.to(device)
-            hc_feats = hc_feats.to(device)
+            scene_feats = scene_feats.to(device)
             labels = labels.to(device)
 
-            outputs = model(imgs, hc_feats)
+            outputs = model(imgs, scene_feats)
             loss = criterion(outputs, labels)
 
-            running_loss += loss.item() * imgs.size(0)
+            total_loss += loss.item() * imgs.size(0)
             _, preds = outputs.max(1)
             correct += preds.eq(labels).sum().item()
             total += labels.size(0)
 
-            all_labels.append(labels.cpu().numpy())
-            all_preds.append(preds.cpu().numpy())
+            labels_all.append(labels.cpu().numpy())
+            preds_all.append(preds.cpu().numpy())
 
-    epoch_loss = running_loss / total
-    epoch_acc = correct / total
-    all_labels = np.concatenate(all_labels)
-    all_preds = np.concatenate(all_preds)
-    return epoch_loss, epoch_acc, all_labels, all_preds
+    return total_loss / total, correct / total, np.concatenate(labels_all), np.concatenate(preds_all)
 
-
-# ==============================
-# 9. MAIN
-# ==============================
+# -------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------
 
 def main():
-    # 1) List images + labels and make splits
+    # 1. List & split
     paths, labels_str = list_image_paths_and_labels(DATA_ROOT)
     p_train, p_val, p_test, y_train_str, y_val_str, y_test_str = split_paths(paths, labels_str)
 
-    # 2) Build handcrafted feature dict for ALL images (so it's shared)
-    print("\nComputing handcrafted+language features for all images...")
-    hc_dict = build_handcrafted_dict(paths)
-    num_hc_features = len(next(iter(hc_dict.values())))
-    print("Handcrafted feature dimension:", num_hc_features)
+    # 2. Scene features
+    print("\nExtracting scene features...")
+    scene_dict = build_scene_dict(paths)
+    num_scene_features = len(next(iter(scene_dict.values())))
+    print("Scene feature dimension:", num_scene_features)
 
-    # 3) Encode labels to ints
+    # 3. Label encoding
     le = LabelEncoder()
     y_train = le.fit_transform(y_train_str)
     y_val = le.transform(y_val_str)
@@ -440,62 +300,61 @@ def main():
     num_classes = len(le.classes_)
     print("Classes:", list(le.classes_))
 
-    # 4) Build datasets + loaders
-    train_dataset = HybridDataset(p_train, y_train, hc_dict, train_transform)
-    val_dataset   = HybridDataset(p_val,   y_val,   hc_dict, eval_transform)
-    test_dataset  = HybridDataset(p_test,  y_test,  hc_dict, eval_transform)
+    # 4. Datasets / Loaders
+    train_ds = SceneDataset(p_train, y_train, scene_dict, train_transform)
+    val_ds   = SceneDataset(p_val, y_val, scene_dict, eval_transform)
+    test_ds  = SceneDataset(p_test, y_test, scene_dict, eval_transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
-    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
-    test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
+    val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    test_loader  = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # 5) Model, loss, optimizer
-    model = HybridNet(num_hc_features=num_hc_features, num_classes=num_classes).to(DEVICE)
+    # 5. Model / Optim
+    model = GeoSceneNet(num_scene_features, num_classes).to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-    best_val_acc = 0.0
+    # 6. Train
+    best_acc = 0.0
     best_state = None
 
-    # 6) Training loop
     for epoch in range(1, NUM_EPOCHS + 1):
-        train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, DEVICE)
-        val_loss, val_acc, _, _ = eval_one_epoch(model, val_loader, criterion, DEVICE)
+        loss_tr, acc_tr = train_one_epoch(model, train_loader, optimizer, criterion, DEVICE)
+        loss_val, acc_val, _, _ = eval_one_epoch(model, val_loader, criterion, DEVICE)
 
-        print(f"[Epoch {epoch:02d}] "
-              f"Train loss: {train_loss:.4f}, acc: {train_acc:.4f} | "
-              f"Val loss: {val_loss:.4f}, acc: {val_acc:.4f}")
+        print(f"[Epoch {epoch:02d}] Train loss: {loss_tr:.4f}, acc: {acc_tr:.4f} | "
+              f"Val loss: {loss_val:.4f}, acc: {acc_val:.4f}")
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        if acc_val > best_acc:
+            best_acc = acc_val
             best_state = model.state_dict()
 
-    # 7) Load best model
+    # 7. Load best and evaluate on test
     if best_state is not None:
         model.load_state_dict(best_state)
-        print(f"\nLoaded best model with val acc = {best_val_acc:.4f}")
+        print(f"\nLoaded best model with val acc = {best_acc:.4f}")
 
-    # 8) Evaluate on test set
-    test_loss, test_acc, y_true, y_pred = eval_one_epoch(model, test_loader, criterion, DEVICE)
-    print("\n=== TEST RESULTS (Hybrid Deep + Handcrafted) ===")
-    print(f"Test loss: {test_loss:.4f}, Test acc: {test_acc:.4f}")
+    loss_test, acc_test, y_true, y_pred = eval_one_epoch(model, test_loader, criterion, DEVICE)
 
-    # Decode labels to city names
+    print("\n=== TEST RESULTS (Scene-Fusion Model) ===")
+    print(f"Test loss: {loss_test:.4f}, Test acc: {acc_test:.4f}")
+
     y_true_str = le.inverse_transform(y_true)
     y_pred_str = le.inverse_transform(y_pred)
 
     print("\nClassification report:")
     print(classification_report(y_true_str, y_pred_str))
+
     print("Confusion matrix:")
     print(confusion_matrix(y_true_str, y_pred_str))
 
-    # 9) Save model + label classes
-    save_path = "hybrid_cnn_handcrafted.pth"
+    # 8. Save model
+    save_path = "/Users/miaonodera/Desktop/UIUC/FALL2025/ECE549/CV/scene_cnn_fusion.pth"
     torch.save(
         {
             "model_state_dict": model.state_dict(),
             "classes": le.classes_.tolist(),
-            "num_hc_features": num_hc_features,
+            "num_scene_features": num_scene_features,
         },
         save_path,
     )
