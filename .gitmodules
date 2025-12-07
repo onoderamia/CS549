@@ -1,0 +1,3 @@
+[submodule "gsv/gsv-cities"]
+	path = gsv/gsv-cities
+	url = https://github.com/amaralibey/gsv-cities.git

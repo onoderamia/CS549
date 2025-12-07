@@ -1,6 +1,4 @@
-import os, random, requests
-from pathlib import Path
-from io import BytesIO
+import os, random
 from PIL import Image
 
 folder = "./out"

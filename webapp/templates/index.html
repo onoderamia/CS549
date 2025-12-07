@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>City Classifier</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --accent: #00ff88;
+            --accent-dim: #00cc6a;
+            --accent-vlm: #ff6b9d;
+            --accent-vlm-dim: #cc5580;
+            --accent-custom: #9d6bff;
+            --accent-custom-dim: #7c55cc;
+            --accent-all: #ffaa00;
+            --text-primary: #ffffff;
+            --text-secondary: #8888aa;
+            --border: #2a2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(ellipse at 20% 20%, rgba(0, 255, 136, 0.05) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(0, 136, 255, 0.05) 0%, transparent 50%);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            padding: 3rem 0;
+        }
+
+        h1 {
+            font-family: 'Space Mono', monospace;
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--accent), #00aaff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .main-content.all-mode {
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+        }
+
+        @media (max-width: 1400px) {
+            .main-content.all-mode {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .main-content,
+            .main-content.all-mode {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }
+
+        .card-title {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+        }
+
+        .card-title.vlm {
+            color: var(--accent-vlm);
+        }
+
+        .card-title.custom {
+            color: var(--accent-custom);
+        }
+
+        .model-selector {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .model-btn {
+            flex: 1;
+            min-width: 100px;
+            padding: 0.75rem 1rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .model-btn:hover {
+            border-color: var(--text-secondary);
+            color: var(--text-primary);
+        }
+
+        .model-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0, 255, 136, 0.1);
+        }
+
+        .model-btn.active.vlm {
+            border-color: var(--accent-vlm);
+            color: var(--accent-vlm);
+            background: rgba(255, 107, 157, 0.1);
+        }
+
+        .model-btn.active.custom {
+            border-color: var(--accent-custom);
+            color: var(--accent-custom);
+            background: rgba(157, 107, 255, 0.1);
+        }
+
+        .model-btn.active.all {
+            border-color: var(--accent-all);
+            color: var(--accent-all);
+            background: rgba(255, 170, 0, 0.1);
+        }
+
+        .model-description {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: var(--bg-secondary);
+        }
+
+        .drop-zone:hover, .drop-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .drop-zone-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .drop-zone-text {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .drop-zone-hint {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        .preview-container {
+            display: none;
+            margin-top: 1rem;
+        }
+
+        .preview-container.active {
+            display: block;
+        }
+
+        .preview-image {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: var(--bg-secondary);
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.8rem 2rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.9rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-dim);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            margin-left: 0.5rem;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--text-secondary);
+            color: var(--text-primary);
+        }
+
+        .actions {
+            margin-top: 1.5rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .results-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+            color: var(--text-secondary);
+        }
+
+        .results-placeholder-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .results-container {
+            display: none;
+        }
+
+        .results-container.active {
+            display: block;
+        }
+
+        .top-prediction {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 170, 255, 0.1));
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .top-prediction.vlm {
+            background: linear-gradient(135deg, rgba(255, 107, 157, 0.1), rgba(170, 85, 255, 0.1));
+            border-color: var(--accent-vlm);
+        }
+
+        .top-prediction.custom {
+            background: linear-gradient(135deg, rgba(157, 107, 255, 0.1), rgba(107, 157, 255, 0.1));
+            border-color: var(--accent-custom);
+        }
+
+        .top-prediction-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .top-prediction-city {
+            font-family: 'Space Mono', monospace;
+            font-size: 2rem;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .top-prediction.vlm .top-prediction-city {
+            color: var(--accent-vlm);
+        }
+
+        .top-prediction.custom .top-prediction-city {
+            color: var(--accent-custom);
+        }
+
+        .top-prediction-confidence {
+            font-size: 1.2rem;
+            color: var(--text-primary);
+            margin-top: 0.25rem;
+        }
+
+        .predictions-list {
+            margin-top: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .prediction-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .prediction-item:last-child {
+            border-bottom: none;
+        }
+
+        .prediction-rank {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            width: 2rem;
+        }
+
+        .prediction-city {
+            width: 6rem;
+            min-width: 6rem;
+            font-weight: 500;
+        }
+
+        .prediction-bar-container {
+            flex: 1;
+            height: 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            margin: 0 0.75rem 0 0.25rem;
+            overflow: hidden;
+        }
+
+        .prediction-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), #00aaff);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .prediction-bar.vlm {
+            background: linear-gradient(90deg, var(--accent-vlm), #aa55ff);
+        }
+
+        .prediction-bar.custom {
+            background: linear-gradient(90deg, var(--accent-custom), #6b9dff);
+        }
+
+        .prediction-confidence {
+            font-family: 'Space Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            width: 4rem;
+            text-align: right;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* Multi-model results card (for "all" mode) */
+        .multi-results {
+            display: none;
+        }
+
+        .multi-results.active {
+            display: block;
+        }
+
+        .model-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            font-family: 'Space Mono', monospace;
+            font-size: 0.7rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-left: 0.5rem;
+        }
+
+        .model-badge.gsv {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--accent);
+        }
+
+        .model-badge.vlm {
+            background: rgba(255, 107, 157, 0.2);
+            color: var(--accent-vlm);
+        }
+
+        .model-badge.custom {
+            background: rgba(157, 107, 255, 0.2);
+            color: var(--accent-custom);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌍 City Classifier</h1>
+            <p class="subtitle">Final Project for CS 543: Computer Vision, Fall 2025. Takes in a street view image and predicts one of 9 cities.</p>
+            <p class="subtitle">By Mia Onodera, Neil Ghose, and Himavanth Mahesh</p>
+            <p class="subtitle">Upload an image to see predictions</p>
+        </header>
+
+        <div class="main-content" id="mainContent">
+            <div class="card">
+                <div class="card-title">📷 Input Image</div>
+                
+                <div class="model-selector">
+                    <button class="model-btn active" data-model="gsv">🔬 GSV</button>
+                    <button class="model-btn vlm" data-model="vlm">🤖 VLM</button>
+                    <button class="model-btn custom" data-model="custom">🧪 Custom</button>
+                    <button class="model-btn all" data-model="all">📊 All Models</button>
+                </div>
+                
+                <div class="model-description" id="modelDescription">
+                    <strong>GSV Model:</strong> Model based on the <a href="https://github.com/amaralibey/gsv-cities"></a>GSV-Cities</a> model.
+                </div>
+                
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-icon">📁</div>
+                    <div class="drop-zone-text">Drop an image here or click to upload</div>
+                    <div class="drop-zone-hint">You can also paste an image with Ctrl+V</div>
+                </div>
+                
+                <input type="file" class="file-input" id="fileInput" accept="image/*">
+                
+                <div class="preview-container" id="previewContainer">
+                    <img class="preview-image" id="previewImage" alt="Preview">
+                </div>
+                
+                <div class="actions">
+                    <button class="btn btn-primary" id="classifyBtn" disabled>Classify</button>
+                    <button class="btn btn-secondary" id="clearBtn" style="display: none;">Clear</button>
+                </div>
+            </div>
+
+            <div class="card" id="singleResultsCard">
+                <div class="card-title" id="resultsTitle">🎯 Predictions</div>
+                
+                <div class="results-placeholder" id="resultsPlaceholder">
+                    <div class="results-placeholder-icon">🔮</div>
+                    <p>Upload an image to see predictions</p>
+                </div>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Analyzing image...</p>
+                </div>
+                
+                <div class="results-container" id="resultsContainer">
+                    <div class="top-prediction" id="topPrediction">
+                        <div class="top-prediction-label">Top Prediction</div>
+                        <div class="top-prediction-city" id="topCity">-</div>
+                        <div class="top-prediction-confidence" id="topConfidence">-</div>
+                    </div>
+                    
+                    <div class="predictions-list" id="predictionsList"></div>
+                </div>
+            </div>
+
+            <div class="card multi-results" id="gsvResultsCard">
+                <div class="card-title">🔬 GSV Predictions</div>
+                
+                <div class="results-container active" id="gsvResultsContainer">
+                    <div class="top-prediction">
+                        <div class="top-prediction-label">Top Prediction</div>
+                        <div class="top-prediction-city" id="gsvTopCity">-</div>
+                        <div class="top-prediction-confidence" id="gsvTopConfidence">-</div>
+                    </div>
+                    
+                    <div class="predictions-list" id="gsvPredictionsList"></div>
+                </div>
+            </div>
+
+            <div class="card multi-results" id="vlmResultsCard">
+                <div class="card-title vlm">🤖 VLM Predictions</div>
+                
+                <div class="results-container active" id="vlmResultsContainer">
+                    <div class="top-prediction vlm">
+                        <div class="top-prediction-label">Top Prediction</div>
+                        <div class="top-prediction-city" id="vlmTopCity">-</div>
+                        <div class="top-prediction-confidence" id="vlmTopConfidence">-</div>
+                    </div>
+                    
+                    <div class="predictions-list" id="vlmPredictionsList"></div>
+                </div>
+            </div>
+
+            <div class="card multi-results" id="customResultsCard">
+                <div class="card-title custom">🧪 Custom Predictions</div>
+                
+                <div class="results-container active" id="customResultsContainer">
+                    <div class="top-prediction custom">
+                        <div class="top-prediction-label">Top Prediction</div>
+                        <div class="top-prediction-city" id="customTopCity">-</div>
+                        <div class="top-prediction-confidence" id="customTopConfidence">-</div>
+                    </div>
+                    
+                    <div class="predictions-list" id="customPredictionsList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewContainer = document.getElementById('previewContainer');
+        const previewImage = document.getElementById('previewImage');
+        const classifyBtn = document.getElementById('classifyBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const resultsPlaceholder = document.getElementById('resultsPlaceholder');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const loading = document.getElementById('loading');
+        const mainContent = document.getElementById('mainContent');
+        const singleResultsCard = document.getElementById('singleResultsCard');
+        const gsvResultsCard = document.getElementById('gsvResultsCard');
+        const vlmResultsCard = document.getElementById('vlmResultsCard');
+        const customResultsCard = document.getElementById('customResultsCard');
+        const modelDescription = document.getElementById('modelDescription');
+        const resultsTitle = document.getElementById('resultsTitle');
+        const topPrediction = document.getElementById('topPrediction');
+        
+        let currentImageData = null;
+        let currentModel = 'gsv';
+
+        const modelDescriptions = {
+            gsv: '<strong>GSV Model:</strong> Model based on the <a href="https://github.com/amaralibey/gsv-cities"></a>GSV-Cities</a> model.',
+            vlm: '<strong>VLM Model:</strong> Model based on the <a href="https://github.com/openai/CLIP"></a>CLIP Vision</a> model.',
+            custom: '<strong>Custom Model:</strong> Our own, custom model. Uses a ResNet18 model with a custom image feature extraction layer.',
+            all: '<strong>All Models:</strong> Run GSV, VLM, and Custom models to compare their predictions side by side.'
+        };
+
+        // model selector
+        document.querySelectorAll('.model-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.model-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentModel = btn.dataset.model;
+                modelDescription.innerHTML = modelDescriptions[currentModel];
+                
+                // update layout based on model
+                updateLayout();
+            });
+        });
+
+        function updateLayout() {
+            if (currentModel === 'all') {
+                mainContent.classList.add('all-mode');
+                singleResultsCard.style.display = 'none';
+                gsvResultsCard.classList.add('active');
+                vlmResultsCard.classList.add('active');
+                customResultsCard.classList.add('active');
+            } else {
+                mainContent.classList.remove('all-mode');
+                singleResultsCard.style.display = 'block';
+                gsvResultsCard.classList.remove('active');
+                vlmResultsCard.classList.remove('active');
+                customResultsCard.classList.remove('active');
+                
+                topPrediction.classList.remove('vlm', 'custom');
+                if (currentModel === 'vlm') {
+                    resultsTitle.className = 'card-title vlm';
+                    resultsTitle.textContent = '🤖 VLM Predictions';
+                    topPrediction.classList.add('vlm');
+                } else if (currentModel === 'custom') {
+                    resultsTitle.className = 'card-title custom';
+                    resultsTitle.textContent = '🧪 Custom Predictions';
+                    topPrediction.classList.add('custom');
+                } else {
+                    resultsTitle.className = 'card-title';
+                    resultsTitle.textContent = '🎯 GSV Predictions';
+                }
+            }
+        }
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleImage(file);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleImage(file);
+            }
+        });
+
+        // paste
+        document.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            for (let item of items) {
+                if (item.type.startsWith('image/')) {
+                    const file = item.getAsFile();
+                    handleImage(file);
+                    break;
+                }
+            }
+        });
+
+        // press Enter to classify
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && currentImageData && !classifyBtn.disabled) {
+                classifyBtn.click();
+            }
+        });
+
+        function handleImage(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                currentImageData = e.target.result;
+                previewImage.src = currentImageData;
+                previewContainer.classList.add('active');
+                dropZone.style.display = 'none';
+                classifyBtn.disabled = false;
+                clearBtn.style.display = 'inline-block';
+                
+                // Reset results
+                resultsContainer.classList.remove('active');
+                resultsPlaceholder.style.display = 'flex';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        clearBtn.addEventListener('click', () => {
+            currentImageData = null;
+            previewImage.src = '';
+            previewContainer.classList.remove('active');
+            dropZone.style.display = 'block';
+            classifyBtn.disabled = true;
+            clearBtn.style.display = 'none';
+            resultsContainer.classList.remove('active');
+            resultsPlaceholder.style.display = 'flex';
+            fileInput.value = '';
+            
+            document.getElementById('gsvPredictionsList').innerHTML = '';
+            document.getElementById('vlmPredictionsList').innerHTML = '';
+            document.getElementById('customPredictionsList').innerHTML = '';
+        });
+
+        classifyBtn.addEventListener('click', async () => {
+            if (!currentImageData) return;
+            
+            resultsPlaceholder.style.display = 'none';
+            resultsContainer.classList.remove('active');
+            loading.classList.add('active');
+            classifyBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/classify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        image: currentImageData,
+                        model: currentModel
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    if (data.model === 'all') {
+                        displayMultiResults(data);
+                    } else {
+                        displayResults(data);
+                    }
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error classifying image: ' + error.message);
+            } finally {
+                loading.classList.remove('active');
+                classifyBtn.disabled = false;
+            }
+        });
+
+        function displayResults(data) {
+            const modelClass = data.model === 'vlm' ? 'vlm' : (data.model === 'custom' ? 'custom' : '');
+            
+            document.getElementById('topCity').textContent = data.top_prediction;
+            document.getElementById('topConfidence').textContent = data.top_confidence;
+            
+            const list = document.getElementById('predictionsList');
+            list.innerHTML = '';
+            
+            data.predictions.forEach((pred, index) => {
+                const item = document.createElement('div');
+                item.className = 'prediction-item';
+                item.innerHTML = `
+                    <span class="prediction-rank">${index + 1}</span>
+                    <span class="prediction-city">${pred.city}</span>
+                    <div class="prediction-bar-container">
+                        <div class="prediction-bar ${modelClass}" style="width: ${pred.confidence * 100}%"></div>
+                    </div>
+                    <span class="prediction-confidence">${pred.percentage}</span>
+                `;
+                list.appendChild(item);
+            });
+            
+            resultsContainer.classList.add('active');
+        }
+
+        function displayMultiResults(data) {
+            document.getElementById('gsvTopCity').textContent = data.gsv.top_prediction;
+            document.getElementById('gsvTopConfidence').textContent = data.gsv.top_confidence;
+            
+            const gsvList = document.getElementById('gsvPredictionsList');
+            gsvList.innerHTML = '';
+            data.gsv.predictions.forEach((pred, index) => {
+                const item = document.createElement('div');
+                item.className = 'prediction-item';
+                item.innerHTML = `
+                    <span class="prediction-rank">${index + 1}</span>
+                    <span class="prediction-city">${pred.city}</span>
+                    <div class="prediction-bar-container">
+                        <div class="prediction-bar" style="width: ${pred.confidence * 100}%"></div>
+                    </div>
+                    <span class="prediction-confidence">${pred.percentage}</span>
+                `;
+                gsvList.appendChild(item);
+            });
+            
+            document.getElementById('vlmTopCity').textContent = data.vlm.top_prediction;
+            document.getElementById('vlmTopConfidence').textContent = data.vlm.top_confidence;
+            
+            const vlmList = document.getElementById('vlmPredictionsList');
+            vlmList.innerHTML = '';
+            data.vlm.predictions.forEach((pred, index) => {
+                const item = document.createElement('div');
+                item.className = 'prediction-item';
+                item.innerHTML = `
+                    <span class="prediction-rank">${index + 1}</span>
+                    <span class="prediction-city">${pred.city}</span>
+                    <div class="prediction-bar-container">
+                        <div class="prediction-bar vlm" style="width: ${pred.confidence * 100}%"></div>
+                    </div>
+                    <span class="prediction-confidence">${pred.percentage}</span>
+                `;
+                vlmList.appendChild(item);
+            });
+
+            document.getElementById('customTopCity').textContent = data.custom.top_prediction;
+            document.getElementById('customTopConfidence').textContent = data.custom.top_confidence;
+            
+            const customList = document.getElementById('customPredictionsList');
+            customList.innerHTML = '';
+            data.custom.predictions.forEach((pred, index) => {
+                const item = document.createElement('div');
+                item.className = 'prediction-item';
+                item.innerHTML = `
+                    <span class="prediction-rank">${index + 1}</span>
+                    <span class="prediction-city">${pred.city}</span>
+                    <div class="prediction-bar-container">
+                        <div class="prediction-bar custom" style="width: ${pred.confidence * 100}%"></div>
+                    </div>
+                    <span class="prediction-confidence">${pred.percentage}</span>
+                `;
+                customList.appendChild(item);
+            });
+        }
+    </script>
+</body>
+</html>

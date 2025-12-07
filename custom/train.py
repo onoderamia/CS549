@@ -16,7 +16,7 @@ from torchvision import models
 # Config
 # -------------------------------------------------------------------
 
-DATA_ROOT = "/Users/miaonodera/Desktop/UIUC/FALL2025/ECE549/CV/out"
+DATA_ROOT = "../out"
 RANDOM_SEED = 42
 
 np.random.seed(RANDOM_SEED)
@@ -28,6 +28,7 @@ LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("xpu") if torch.xpu.is_available() else DEVICE
 print("Using device:", DEVICE)
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -349,7 +350,7 @@ def main():
     print(confusion_matrix(y_true_str, y_pred_str))
 
     # 8. Save model
-    save_path = "/Users/miaonodera/Desktop/UIUC/FALL2025/ECE549/CV/scene_cnn_fusion.pth"
+    save_path = "../models/custom.pth"
     torch.save(
         {
             "model_state_dict": model.state_dict(),

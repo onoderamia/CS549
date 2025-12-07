@@ -23,7 +23,7 @@ BBOXES = {
 
 META_URL  = "https://maps.googleapis.com/maps/api/streetview/metadata"
 IMAGE_URL = "https://maps.googleapis.com/maps/api/streetview"
-OUT = Path("out"); OUT.mkdir(exist_ok=True)
+OUT = Path("../out"); OUT.mkdir(exist_ok=True)
 
 num_requests = 0
 
