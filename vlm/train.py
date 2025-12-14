@@ -77,8 +77,8 @@ def evaluate(model, test_paths, test_labels, batch_size=16):
 
 
 if __name__ == "__main__":
-    cities = load_cities("../out")
-    image_paths, labels = load_dataset("../out")
+    cities = load_cities("../data")
+    image_paths, labels = load_dataset("../data")
 
     city_to_id = get_city_to_id()
     labels = [city_to_id[l] for l in labels]

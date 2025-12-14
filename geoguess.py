@@ -1,7 +1,7 @@
 import os, random
 from PIL import Image
 
-folder = "./out"
+folder = "./data"
 city = random.choice(os.listdir(folder))
 img = random.choice(os.listdir(f"{folder}/{city}"))
 

@@ -72,8 +72,8 @@ def evaluate(model, test_paths, test_labels, batch_size=16):
 
 
 if __name__ == "__main__":
-    cities = load_cities("../out")
-    image_paths, labels = load_dataset("../out")
+    cities = load_cities("../data")
+    image_paths, labels = load_dataset("../data")
 
     city_to_id = get_city_to_id()
     labels = [city_to_id[l] for l in labels]
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     model = load_model(sys.argv[1]) if len(sys.argv) > 1 else load_model()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
-    EPOCHS = 1
+    EPOCHS = 10
     active_train_transform = train_transform if RANDOM_VARIATION else transform
 
     print(f"Training with augmentation: {RANDOM_VARIATION}")
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         print(f"Avg loss: {loss:.4f}, Train acc: {train_acc:.4f}, Test acc: {test_acc:.4f}")
 
     # save weights
-    save_path = "../models/gsv-2.pth"
+    save_path = "../models/gsv.pth"
     torch.save(model.state_dict(), save_path)
     print(f"\nModel saved to {save_path}")
 

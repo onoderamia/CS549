@@ -8,7 +8,7 @@ from io import BytesIO
 import base64
 
 BASE_DIR = os.path.dirname(__file__)
-DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'out'))
+DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'data'))
 GSV_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'gsv'))
 VLM_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'vlm'))
 CUSTOM_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'custom'))

@@ -12,6 +12,7 @@ sys.path.append('gsv-cities')
 from main import VPRModel
 
 DEVICE = "xpu" if torch.xpu.is_available() else "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else DEVICE
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -25,7 +26,7 @@ transform = T.Compose([
 CITIES = None
 DATA_DIR = None
 
-def load_cities(root="../out"):
+def load_cities(root="../data"):
     global CITIES, DATA_DIR
     CITIES = sorted([city for city in os.listdir(root) if os.path.isdir(os.path.join(root, city))])
     DATA_DIR = root
@@ -34,7 +35,7 @@ def load_cities(root="../out"):
 def get_city_to_id():
     return {c: i for i, c in enumerate(CITIES)}
 
-def load_dataset(root="../out"):
+def load_dataset(root="../data"):
     global CITIES, DATA_DIR
     if CITIES is None or DATA_DIR is None:
         load_cities(root)

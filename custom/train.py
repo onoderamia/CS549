@@ -16,7 +16,7 @@ from torchvision import models
 # Config
 # -------------------------------------------------------------------
 
-DATA_ROOT = "../out"
+DATA_ROOT = "../data"
 RANDOM_SEED = 42
 
 np.random.seed(RANDOM_SEED)

@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 DEVICE = "xpu" if torch.xpu.is_available() else "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else DEVICE
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 SIGLIP_MODEL_NAME = "google/siglip-base-patch16-224"
 
@@ -16,7 +17,7 @@ CITIES = None
 DATA_DIR = None
 
 
-def load_cities(root="../out"):
+def load_cities(root="../data"):
     global CITIES, DATA_DIR
     CITIES = sorted([city for city in os.listdir(root) if os.path.isdir(os.path.join(root, city))])
     DATA_DIR = root
@@ -26,7 +27,7 @@ def load_cities(root="../out"):
 def get_city_to_id():
     return {c: i for i, c in enumerate(CITIES)}
 
-def load_dataset(root="../out"):
+def load_dataset(root="../data"):
     global CITIES, DATA_DIR
     if CITIES is None or DATA_DIR is None:
         load_cities(root)

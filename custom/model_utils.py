@@ -7,7 +7,7 @@ from train import *
 
 CITIES = None
 
-def load_cities(root="../out"):
+def load_cities(root="../data"):
     global CITIES
     CITIES = sorted([city for city in os.listdir(root) if os.path.isdir(os.path.join(root, city))])
     return CITIES

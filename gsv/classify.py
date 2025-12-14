@@ -41,7 +41,7 @@ if __name__ == "__main__":
     checkpoint_path = sys.argv[2] if len(sys.argv) > 2 else "../models/gsv.pth"
         
     print(f"Loading model from: {checkpoint_path}")
-    load_cities("../out")
+    load_cities("../data")
     model = load_model(checkpoint_path)
     
 

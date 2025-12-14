@@ -4,7 +4,7 @@ from sklearn.metrics import confusion_matrix
 from model_utils import load_dataset, get_predictions, load_model, load_cities, get_city_to_id
 
 if __name__ == "__main__":
-    cities = load_cities("../out")
+    cities = load_cities("../data")
 
     image_paths, labels = load_dataset()
     city_to_id = get_city_to_id()

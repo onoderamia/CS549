@@ -1,0 +1,3 @@
+-r gsv/gsv-cities/requirements.txt
+flask
+transformers
