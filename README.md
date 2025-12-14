@@ -48,7 +48,7 @@ pip install -r requirements.txt
 4. Scrape your own data OR download our data from [here](https://uofi.box.com/v/cs543-fa25-group14-data)
 ```bash
 cd scraper
-echo <YOUR_GOOGLE_API_KEY> > .env
+echo [YOUR_GOOGLE_API_KEY] > .env
 python scraper.py
 ```
 
