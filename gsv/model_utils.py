@@ -68,7 +68,6 @@ def load_model(checkpoint_path=None):
         },
     )
     
-    # classification head
     model = torch.nn.Sequential(
         backbone,
         torch.nn.Linear(128*2*2, len(CITIES))

@@ -25,7 +25,6 @@ sys.path.insert(0, VLM_DIR)
 sys.path.insert(0, CUSTOM_DIR)
 sys.path.insert(0, os.path.join(GSV_DIR, 'gsv-cities'))
 
-
 def load_module_from_path(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -83,11 +82,9 @@ def save_temp_image(image_data):
     
     return temp_file.name
 
-
 @app.route('/')
 def index():
     return render_template('index.html')
-
 
 @app.route('/classify', methods=['POST'])
 def classify():
@@ -149,9 +146,7 @@ def classify():
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
 
-
 if __name__ == '__main__':
-    # preload models
     print("Loading GSV model...")
     load_model("gsv")
     print("Loading VLM model...")

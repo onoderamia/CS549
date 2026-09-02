@@ -3,7 +3,6 @@ import numpy as np
 from sklearn.metrics import confusion_matrix
 from model_utils import load_dataset, get_predictions, load_model, load_cities, get_city_to_id
 
-
 if __name__ == "__main__":
     cities = load_cities("../data")
 
@@ -17,7 +16,6 @@ if __name__ == "__main__":
 
     cm = confusion_matrix(y_true, y_pred) 
     
-    # convert to prob
     cm_prob = cm.astype(float)
     row_sums = cm_prob.sum(axis=1, keepdims=True)
     cm_prob = np.divide(cm_prob, row_sums, where=row_sums != 0)
@@ -43,7 +41,6 @@ if __name__ == "__main__":
     results_dir = "results"
     os.makedirs(results_dir, exist_ok=True)
 
-    # clear old results
     for city in cities_sorted:
         open(os.path.join(results_dir, f"{city}.txt"), "w").close()
 
@@ -56,17 +53,14 @@ if __name__ == "__main__":
 
     num_classes = cm.shape[0]
 
-    # overall accuracy
     accuracy = np.trace(cm) / np.sum(cm)
 
-    # TPR = TP / (TP + FN)
     tpr = np.zeros(num_classes)
     for i in range(num_classes):
         TP = cm[i, i]
         FN = np.sum(cm[i, :]) - TP
         tpr[i] = TP / (TP + FN)
 
-    # TNR = TN / (FP + TN)
     tnr = np.zeros(num_classes)
     for i in range(num_classes):
         FP = np.sum(cm[:, i]) - cm[i, i]

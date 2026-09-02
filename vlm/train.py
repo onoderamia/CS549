@@ -12,7 +12,6 @@ import sys
 from random import shuffle
 from model_utils import *
 
-# augmentation
 RANDOM_VARIATION = True
 
 train_transform = T.Compose([
@@ -20,7 +19,6 @@ train_transform = T.Compose([
     T.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3),
     T.RandomApply([T.GaussianBlur(kernel_size=3)], p=0.2),
 ])
-
 
 def train_epoch(model, image_paths, labels, optimizer, img_transform=None, batch_size=16):
     model.train()
@@ -39,7 +37,6 @@ def train_epoch(model, image_paths, labels, optimizer, img_transform=None, batch
         batch = data[batch_idx * batch_size : (batch_idx + 1) * batch_size]
         paths, label_ids = zip(*batch)
 
-        # load images
         def load_img(path):
             img = Image.open(path).convert("RGB")
             if img_transform is not None:
@@ -49,10 +46,8 @@ def train_epoch(model, image_paths, labels, optimizer, img_transform=None, batch
         images = [load_img(p) for p in paths]
         targets = torch.tensor(label_ids, dtype=torch.long, device=DEVICE)
 
-        # forward pass (model handles preprocessing internally)
         logits = model(images)
 
-        # compute loss
         loss = loss_fn(logits, targets)
 
         optimizer.zero_grad()
@@ -61,7 +56,6 @@ def train_epoch(model, image_paths, labels, optimizer, img_transform=None, batch
 
         total_loss += loss.item()
 
-        # record accuracy
         preds = logits.argmax(dim=1)
         num_correct += (preds == targets).sum().item()
         num_samples += len(targets)
@@ -70,11 +64,9 @@ def train_epoch(model, image_paths, labels, optimizer, img_transform=None, batch
     accuracy = num_correct / num_samples if num_samples > 0 else 0
     return avg_loss, accuracy
 
-
 def evaluate(model, test_paths, test_labels, batch_size=16):
     preds = get_predictions(model, test_paths, batch_size)
     return np.mean(preds == np.array(test_labels))
-
 
 if __name__ == "__main__":
     cities = load_cities("../data")
@@ -83,13 +75,12 @@ if __name__ == "__main__":
     city_to_id = get_city_to_id()
     labels = [city_to_id[l] for l in labels]
 
-    # shuffle the dataset
     il = list(zip(image_paths, labels))
     shuffle(il)
     image_paths, labels = zip(*il)
 
     N = len(image_paths)
-    split = 4 * N // 5 # 80-20 split
+    split = 4 * N // 5
     train_paths = image_paths[:split]
     train_labels = labels[:split]
 
@@ -109,12 +100,10 @@ if __name__ == "__main__":
         test_acc = evaluate(model, test_paths, test_labels)
         print(f"Avg loss: {loss:.4f}, Train acc: {train_acc:.4f}, Test acc: {test_acc:.4f}")
 
-    # save weights
     save_path = "../models/vlm.pth"
     torch.save(model.state_dict(), save_path)
     print(f"\nModel saved to {save_path}")
 
-    # final eval
     print("\nFinal evaluation on test set...")
 
     preds = get_predictions(model, test_paths, batch_size=16)

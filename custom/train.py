@@ -12,10 +12,6 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
 from torchvision import models
 
-# -------------------------------------------------------------------
-# Config
-# -------------------------------------------------------------------
-
 DATA_ROOT = "../data"
 RANDOM_SEED = 42
 
@@ -51,14 +47,9 @@ eval_transform = T.Compose([
     T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
 
-# -------------------------------------------------------------------
-# CV Features
-# -------------------------------------------------------------------
-
 def feature_texture(gray):
     lap = cv2.Laplacian(gray, cv2.CV_64F)
     return min(lap.var(), 5000.0)
-
 
 def feature_edges(gray):
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
@@ -66,13 +57,11 @@ def feature_edges(gray):
     magy = np.mean(np.abs(cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)))
     return magx / (magx + magy + 1e-8)
 
-
 def feature_color(img_bgr):
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
     sky_mask = (v > 180) & (s < 60)
     return float(h.mean()), float(s.mean()), float(v.mean()), float(v.std()), float(sky_mask.mean())
-
 
 def feature_horizon(gray):
     sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
@@ -80,18 +69,15 @@ def feature_horizon(gray):
     horizon_row = int(np.argmax(row_grad))
     return horizon_row / gray.shape[0]
 
-
 def feature_keypoints(gray):
     orb = cv2.ORB_create(nfeatures=500)
     keypoints = orb.detect(gray, None)
     h, w = gray.shape
     return len(keypoints) / (h * w)
 
-
 def feature_edge_density(gray):
     edges = cv2.Canny(gray, 100, 200)
     return float((edges > 0).mean())
-
 
 def extract_scene_features(path):
     img = cv2.imread(path)
@@ -123,13 +109,8 @@ def extract_scene_features(path):
 
     return scene10
 
-
 def build_scene_dict(paths):
     return {p: extract_scene_features(p) for p in paths}
-
-# -------------------------------------------------------------------
-# Data utilities
-# -------------------------------------------------------------------
 
 def list_image_paths_and_labels(root):
     paths, labels = [], []
@@ -145,7 +126,6 @@ def list_image_paths_and_labels(root):
     labels = np.array(labels)
     print(f"Found {len(paths)} images across {len(np.unique(labels))} cities.")
     return paths, labels
-
 
 def split_paths(paths, labels):
     p_train, p_temp, y_train, y_temp = train_test_split(
@@ -167,10 +147,6 @@ def split_paths(paths, labels):
     print("  Val  :", len(p_val))
     print("  Test :", len(p_test))
     return p_train, p_val, p_test, y_train, y_val, y_test
-
-# -------------------------------------------------------------------
-# Dataset
-# -------------------------------------------------------------------
 
 class SceneDataset(Dataset):
     def __init__(self, paths, labels_int, scene_dict, transform):
@@ -198,10 +174,6 @@ class SceneDataset(Dataset):
 
         return img_tensor, scene_feats, label_tensor
 
-# -------------------------------------------------------------------
-# Model
-# -------------------------------------------------------------------
-
 class GeoSceneNet(nn.Module):
     def __init__(self, num_scene_features, num_classes):
         super().__init__()
@@ -220,10 +192,6 @@ class GeoSceneNet(nn.Module):
         cnn_feats = self.cnn(x_img)
         x = torch.cat([cnn_feats, x_scene], dim=1)
         return self.fc(x)
-
-# -------------------------------------------------------------------
-# Train / Eval loops
-# -------------------------------------------------------------------
 
 def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
@@ -248,7 +216,6 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
         total += labels.size(0)
 
     return total_loss / total, correct / total
-
 
 def eval_one_epoch(model, loader, criterion, device):
     model.eval()
@@ -278,22 +245,15 @@ def eval_one_epoch(model, loader, criterion, device):
 
     return total_loss / total, correct / total, np.concatenate(labels_all), np.concatenate(preds_all)
 
-# -------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------
-
 def main():
-    # 1. List & split
     paths, labels_str = list_image_paths_and_labels(DATA_ROOT)
     p_train, p_val, p_test, y_train_str, y_val_str, y_test_str = split_paths(paths, labels_str)
 
-    # 2. Scene features
     print("\nExtracting scene features...")
     scene_dict = build_scene_dict(paths)
     num_scene_features = len(next(iter(scene_dict.values())))
     print("Scene feature dimension:", num_scene_features)
 
-    # 3. Label encoding
     le = LabelEncoder()
     y_train = le.fit_transform(y_train_str)
     y_val = le.transform(y_val_str)
@@ -301,7 +261,6 @@ def main():
     num_classes = len(le.classes_)
     print("Classes:", list(le.classes_))
 
-    # 4. Datasets / Loaders
     train_ds = SceneDataset(p_train, y_train, scene_dict, train_transform)
     val_ds   = SceneDataset(p_val, y_val, scene_dict, eval_transform)
     test_ds  = SceneDataset(p_test, y_test, scene_dict, eval_transform)
@@ -310,12 +269,10 @@ def main():
     val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
     test_loader  = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # 5. Model / Optim
     model = GeoSceneNet(num_scene_features, num_classes).to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-    # 6. Train
     best_acc = 0.0
     best_state = None
 
@@ -330,7 +287,6 @@ def main():
             best_acc = acc_val
             best_state = model.state_dict()
 
-    # 7. Load best and evaluate on test
     if best_state is not None:
         model.load_state_dict(best_state)
         print(f"\nLoaded best model with val acc = {best_acc:.4f}")
@@ -349,7 +305,6 @@ def main():
     print("Confusion matrix:")
     print(confusion_matrix(y_true_str, y_pred_str))
 
-    # 8. Save model
     save_path = "../models/custom.pth"
     torch.save(
         {
@@ -360,7 +315,6 @@ def main():
         save_path,
     )
     print(f"\nSaved model to {save_path}")
-
 
 if __name__ == "__main__":
     main()

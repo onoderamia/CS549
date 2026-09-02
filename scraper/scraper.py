@@ -52,11 +52,9 @@ def score_streetness(pil_img):
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
     gray    = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    # sharpness 
     lap_var = cv2.Laplacian(gray, cv2.CV_64F, ksize=3).var()
     sharp = min(lap_var, 300.0) / 300.0
 
-    # edges lower vs upper
     edges = cv2.Canny(gray, 60, 160, L2gradient=True)
     h, w = edges.shape
     lower = edges[h//2:, :]
@@ -66,7 +64,6 @@ def score_streetness(pil_img):
     ed_lo   = min(ed_lo, 1.0)
     ed_diff = min(ed_diff, 1.0)
 
-    # wall
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     ax = np.mean(np.abs(sobelx))

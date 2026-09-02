@@ -16,13 +16,11 @@ SIGLIP_MODEL_NAME = "google/siglip-base-patch16-224"
 CITIES = None
 DATA_DIR = None
 
-
 def load_cities(root="../data"):
     global CITIES, DATA_DIR
     CITIES = sorted([city for city in os.listdir(root) if os.path.isdir(os.path.join(root, city))])
     DATA_DIR = root
     return CITIES
-
 
 def get_city_to_id():
     return {c: i for i, c in enumerate(CITIES)}
@@ -56,7 +54,6 @@ class CLIPCityClassifier(nn.Module):
         
         hidden_size = self.clip.config.hidden_size
         
-        # classification head
         self.classifier = nn.Linear(hidden_size, num_classes)
     
     def forward(self, images):
@@ -92,11 +89,9 @@ def get_logits(model, image_paths, batch_size=16, progress=True):
     
     return np.concatenate(all_logits, axis=0)
 
-
 def get_predictions(model, image_paths, batch_size=16, progress=True):
     logits = get_logits(model, image_paths, batch_size, progress)
     return np.argmax(logits, axis=1)
-
 
 def classify_image(model, image_path):
     logits = get_logits(model, [image_path], 1, False)[0]
