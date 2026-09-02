@@ -2,9 +2,9 @@
 
 A deep learning project for classifying cities from street view images using multiple model architectures. This project compares three different approaches to  visual place recognition: a GSV-based model adapted from an existing open-source implementation, a vision-based transformer model, and our hybrid model, GeoSceneNet, which fuses computer-vision based scene descriptors with CNN image features.
 
-## Demo
+## Demo (linked)
 
-[![Watch the demo](https://img.youtube.com/vi/9_rmPO3VvQA/0.jpg)](https://www.youtube.com/watch?v=9_rmPO3VvQA) (linked)
+[![Watch the demo](https://img.youtube.com/vi/9_rmPO3VvQA/0.jpg)](https://www.youtube.com/watch?v=9_rmPO3VvQA)
 
 You can also try the web application live on the same GeoGuessr map [here](https://www.geoguessr.com/maps/6927ba2c3537ac4b3ca9fde1).
 
