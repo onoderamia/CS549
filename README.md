@@ -86,4 +86,6 @@ cd webapp
 python app.py
 ```
 
-A demonstration of the web application is available [here](https://drive.google.com/file/d/1UhvnQ-oMNfKjjssvR51FifTlNLouzCDI/view?usp=sharing). If you would like to test it on the same GeoGuessr map, you can also try it [here](https://www.geoguessr.com/maps/6927ba2c3537ac4b3ca9fde1).
+[![Watch the demo](https://img.youtube.com/vi/9_rmPO3VvQA/0.jpg)](https://www.youtube.com/watch?v=9_rmPO3VvQA)
+
+If you would like to test it on the same GeoGuessr map, you can also try it [here](https://www.geoguessr.com/maps/6927ba2c3537ac4b3ca9fde1).
